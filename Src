@@ -1,0 +1,541 @@
+package Pack_Leyo;
+/*
+ * 2024 -04-13 AES 전체적 틀 구상
+ * 2024 -04-14 AES - Mixcul 및 AddRound 제작 및 호환 메소드 제작
+ * 2024 -04-20 라운드키(파생) 제작 시도 - 키 미리 입력으로 변환
+ * 2024 -04-24 AES 복호화 제작시도, 호환 메소드 제작
+ * 2024 -05-03 AES 디버그 및 안정화 코드 제작
+ * 2024 -05-12 복호화 경량화 시도
+ * 2024 -05-13 복호화 제작
+ * 2024 -05-18 한글 암호화 제작
+ * 2024 -05-20 한글 2중 치환 시도 및 축소 시도
+ * 2024 -05-21 한글 암호화 재제작 
+ * 2024 -05-23 한글 암호화 디버그 및 코드 일부 수정
+ * 2024 -05-24 한글 복호화 코드 추가및 암호화 수정, 보거스 캐릭터 제작, 일부 코드 최적화 및 경량화 진행, 디버그 진행 , 일부 주석추가 
+ */
+public class AES_Code_Leyo {
+
+	final static int arrMaxvalueX = 4;
+	final static int arrMaxvalueY = 4;
+	static int MaxRound = 4; // 라운드 가 돌 최대 횟수
+	static int Plan_count = 16; // 몇 글자 암호화 인지 상수 입력 : 암호화 저장 칸수가 4*4 이기때문에 16 으로 고정되어야함.
+	static String Dct_Plan = "암호문장 받아G"; //한글 암호화 되었음. 16byte 이상 입력시 오류
+	static String Ext_Plan = ""; // D -> E 로 이동됨.
+	static String Key = "KEY 가 문제야!"; // Key값 16진수 로 변환시 32byte 가 나와야함. 
+	static int[] hangul = new int[16];
+	
+	static int [][] InvMix_Col = {{0x14,0x11,0x13,0x09},
+								  {0x09,0x14,0x11,0x13},
+								  {0x13,0x09,0x14,0x11},
+								  {0x1,0x13,0x09,0x14}};
+	
+	static int[][] AES_Mix_Col = {{0x02,0x03,0x01,0x01},
+								  {0x01,0x02,0x03,0x01},
+								  {0x01,0x01,0x02,0x03},
+								  {0x03,0x01,0x01,0x02}};
+	static int[] AES_Round_key_Constants = { 0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x1b, 0x36};
+	//디버깅 용 코드
+	
+	static int[][] Round_key_pull_out = new int [10][16];
+	//Round_key   복사용 Round_key_pull_out -> 과 Round_key 의 위치를 바꾸면 Round_key 에 Roundkey 값이 들어감.
+
+//Round_key   라운드 키를 생성함에 문제가 있기 때문에, 미리 생성함.	
+	static int[][] Round_key = {{0x54, 0x68, 0x61, 0x74, 0x73, 0x20, 0x6D, 0x79, 0x20, 0x4B, 0x75, 0x6E, 0x67, 0x20, 0x46, 0x75},
+								{0xE2, 0x32, 0xFC, 0xF1, 0x91, 0x12, 0x91, 0x88, 0xB1, 0x59, 0xE4, 0xE6, 0xD6, 0x79, 0xA2, 0x93},
+								{0x56, 0x08, 0x20 ,0x07 ,0xC7 ,0x1A ,0xB1 ,0x8F ,0x76 ,0x43 ,0x55 ,0x69 ,0xA0 ,0x3A ,0xF7 ,0xFA},
+								{0xD2, 0x60 ,0x0D ,0xE7 ,0x15 ,0x7A ,0xBC ,0x68 ,0x63 ,0x39 ,0xE9 ,0x01 ,0xC3 ,0x03 ,0x1E ,0xFB},
+								{0xA1 ,0x12 ,0x02 ,0xC9 ,0xB4 ,0x68 ,0xBE ,0xA1 ,0xD7 ,0x51 ,0x57 ,0xA0 ,0x14 ,0x52 ,0x49 ,0x5B},
+								{0xB1 ,0x29 ,0x3B ,0x33 ,0x05 ,0x41 ,0x85 ,0x92 ,0xD2 ,0x10 ,0xD2 ,0x32 ,0xC6 ,0x42 ,0x9B ,0x69},
+								{0xBD ,0x3D ,0xC2 ,0xB7 ,0xB8 ,0x7C ,0x47 ,0x15 ,0x6A ,0x6C ,0x95 ,0x27 ,0xAC ,0x2E ,0x0E ,0x4E},
+								{0xCC ,0x96 ,0xED ,0x16 ,0x74 ,0xEA ,0xAA ,0x03 ,0x1E ,0x86 ,0x3F ,0x24 ,0xB2 ,0xA8 ,0x31 ,0x6A},
+								{0x8E ,0x51 ,0xEF ,0x21 ,0xFA ,0xBB ,0x45 ,0x22 ,0xE4 ,0x3D ,0x7A ,0x06 ,0x56 ,0x95 ,0x4B ,0x6C},
+								{0xBF ,0xE2 ,0xBF ,0x90 ,0x45 ,0x59 ,0xFA ,0xB2 ,0xA1 ,0x64 ,0x80 ,0xB4 ,0xF7 ,0xF1 ,0xCB ,0xD8},
+								{0x28 ,0xFD ,0xDE ,0xF8 ,0x6D ,0xA4 ,0x24 ,0x4A ,0xCC ,0xC0 ,0xA4 ,0xFE ,0x3B ,0x31 ,0x6F ,0x26}
+								};	
+	// 16에 Round에 해당 하는 만큼. Key값을 각각 대칭 시켜서 넣음.
+
+	static String[][] AES_In_State = new String[Plan_count/arrMaxvalueX][Plan_count/arrMaxvalueY]; 
+	//State input : 기본적 초기 계산 진행후 
+	static String[][] AES_Out_State= new String[Plan_count/arrMaxvalueX][Plan_count/arrMaxvalueY];
+	//State output -> 2R = input 으로 변환 
+	static String[] AES_State_HexArr = new String[Plan_count];
+	//State 문자열을 Max_X 값 만큼 
+
+	final static int[][] AES_S_box = {
+		       	{0x63, 0x7C, 0x77, 0x7B, 0xF2, 0x6B, 0x6F, 0xC5, 0x30, 0x01, 0x67, 0x2B, 0xFE, 0xD7, 0xAB, 0x76},
+		        {0xCA, 0x82, 0xC9, 0x7D, 0xFA, 0x59, 0x47, 0xF0, 0xAD, 0xD4, 0xA2, 0xAF, 0x9C, 0xA4, 0x72, 0xC0},
+		        {0xB7, 0xFD, 0x93, 0x26, 0x36, 0x3F, 0xF7, 0xCC, 0x34, 0xA5, 0xE5, 0xF1, 0x71, 0xD8, 0x31, 0x15},
+		        {0x04, 0xC7, 0x23, 0xC3, 0x18, 0x96, 0x05, 0x9A, 0x07, 0x12, 0x80, 0xE2, 0xEB, 0x27, 0xB2, 0x75},
+		        {0x09, 0x83, 0x2C, 0x1A, 0x1B, 0x6E, 0x5A, 0xA0, 0x52, 0x3B, 0xD6, 0xB3, 0x29, 0xE3, 0x2F, 0x84},
+		        {0x53, 0xD1, 0x00, 0xED, 0x20, 0xFC, 0xB1, 0x5B, 0x6A, 0xCB, 0xBE, 0x39, 0x4A, 0x4C, 0x58, 0xCF},
+		        {0xD0, 0xEF, 0xAA, 0xFB, 0x43, 0x4D, 0x33, 0x85, 0x45, 0xF9, 0x02, 0x7F, 0x50, 0x3C, 0x9F, 0xA8},
+		        {0x51, 0xA3, 0x40, 0x8F, 0x92, 0x9D, 0x38, 0xF5, 0xBC, 0xB6, 0xDA, 0x21, 0x10, 0xFF, 0xF3, 0xD2},
+		        {0xCD, 0x0C, 0x13, 0xEC, 0x5F, 0x97, 0x44, 0x17, 0xC4, 0xA7, 0x7E, 0x3D, 0x64, 0x5D, 0x19, 0x73},
+		        {0x60, 0x81, 0x4F, 0xDC, 0x22, 0x2A, 0x90, 0x88, 0x46, 0xEE, 0xB8, 0x14, 0xDE, 0x5E, 0x0B, 0xDB},
+		        {0xE0, 0x32, 0x3A, 0x0A, 0x49, 0x06, 0x24, 0x5C, 0xC2, 0xD3, 0xAC, 0x62, 0x91, 0x95, 0xE4, 0x79},
+		        {0xE7, 0xC8, 0x37, 0x6D, 0x8D, 0xD5, 0x4E, 0xA9, 0x6C, 0x56, 0xF4, 0xEA, 0x65, 0x7A, 0xAE, 0x08},
+		        {0xBA, 0x78, 0x25, 0x2E, 0x1C, 0xA6, 0xB4, 0xC6, 0xE8, 0xDD, 0x74, 0x1F, 0x4B, 0xBD, 0x8B, 0x8A},
+		        {0x70, 0x3E, 0xB5, 0x66, 0x48, 0x03, 0xF6, 0x0E, 0x61, 0x35, 0x57, 0xB9, 0x86, 0xC1, 0x1D, 0x9E},
+		        {0xE1, 0xF8, 0x98, 0x11, 0x69, 0xD9, 0x8E, 0x94, 0x9B, 0x1E, 0x87, 0xE9, 0xCE, 0x55, 0x28, 0xDF},
+		        {0x8C, 0xA1, 0x89, 0x0D, 0xBF, 0xE6, 0x42, 0x68, 0x41, 0x99, 0x2D, 0x0F, 0xB0, 0x54, 0xBB, 0x16}
+		    }; 
+	
+	 final static int[][] ARS_inv_S_box = {
+	            {0x52, 0x09, 0x6a, 0xd5, 0x30, 0x36, 0xa5, 0x38, 0xbf, 0x40, 0xa3, 0x9e, 0x81, 0xf3, 0xd7, 0xfb},
+	            {0x7c, 0xe3, 0x39, 0x82, 0x9b, 0x2f, 0xff, 0x87, 0x34, 0x8e, 0x43, 0x44, 0xc4, 0xde, 0xe9, 0xcb},
+	            {0x54, 0x7b, 0x94, 0x32, 0xa6, 0xc2, 0x23, 0x3d, 0xee, 0x4c, 0x95, 0x0b, 0x42, 0xfa, 0xc3, 0x4e},
+	            {0x08, 0x2e, 0xa1, 0x66, 0x28, 0xd9, 0x24, 0xb2, 0x76, 0x5b, 0xa2, 0x49, 0x6d, 0x8b, 0xd1, 0x25},
+	            {0x72, 0xf8, 0xf6, 0x64, 0x86, 0x68, 0x98, 0x16, 0xd4, 0xa4, 0x5c, 0xcc, 0x5d, 0x65, 0xb6, 0x92},
+	            {0x6c, 0x70, 0x48, 0x50, 0xfd, 0xed, 0xb9, 0xda, 0x5e, 0x15, 0x46, 0x57, 0xa7, 0x8d, 0x9d, 0x84},
+	            {0x90, 0xd8, 0xab, 0x00, 0x8c, 0xbc, 0xd3, 0x0a, 0xf7, 0xe4, 0x58, 0x05, 0xb8, 0xb3, 0x45, 0x06},
+	            {0xd0, 0x2c, 0x1e, 0x8f, 0xca, 0x3f, 0x0f, 0x02, 0xc1, 0xaf, 0xbd, 0x03, 0x01, 0x13, 0x8a, 0x6b},
+	            {0x3a, 0x91, 0x11, 0x41, 0x4f, 0x67, 0xdc, 0xea, 0x97, 0xf2, 0xcf, 0xce, 0xf0, 0xb4, 0xe6, 0x73},
+	            {0x96, 0xac, 0x74, 0x22, 0xe7, 0xad, 0x35, 0x85, 0xe2, 0xf9, 0x37, 0xe8, 0x1c, 0x75, 0xdf, 0x6e},
+	            {0x47, 0xf1, 0x1a, 0x71, 0x1d, 0x29, 0xc5, 0x89, 0x6f, 0xb7, 0x62, 0x0e, 0xaa, 0x18, 0xbe, 0x1b},
+	            {0xfc, 0x56, 0x3e, 0x4b, 0xc6, 0xd2, 0x79, 0x20, 0x9a, 0xdb, 0xc0, 0xfe, 0x78, 0xcd, 0x5a, 0xf4},
+	            {0x1f, 0xdd, 0xa8, 0x33, 0x88, 0x07, 0xc7, 0x31, 0xb1, 0x12, 0x10, 0x59, 0x27, 0x80, 0xec, 0x5f},
+	            {0x60, 0x51, 0x7f, 0xa9, 0x19, 0xb5, 0x4a, 0x0d, 0x2d, 0xe5, 0x7a, 0x9f, 0x93, 0xc9, 0x9c, 0xef},
+	            {0xa0, 0xe0, 0x3b, 0x4d, 0xae, 0x2a, 0xf5, 0xb0, 0xc8, 0xeb, 0xbb, 0x3c, 0x83, 0x53, 0x99, 0x61},
+	            {0x17, 0x2b, 0x04, 0x7e, 0xba, 0x77, 0xd6, 0x26, 0xe1, 0x69, 0x14, 0x63, 0x55, 0x21, 0x0c, 0x7d}
+	    };
+	 
+	 // 문자열 배열 = in state 개수 / Max y 값 4
+	 
+	
+	public static String[][] SubByte_Cul(byte[] Before_sub, int S_box_bleans) {
+		// x를 기준으로 shift 연산 시발 왜 바이트냐
+		int First_char=0,Second_char=0,rept_length=0;
+		System.out.println(" S-box 연산 진입 ");
+		//byte[] Sub_masking_After = new byte [Before_sub.length];
+		//Sub_masking_After = StringHextext_byteArr_masking(Before_sub);
+		
+		for(rept_length=0;rept_length<Plan_count;rept_length++) {
+			int y=rept_length%arrMaxvalueY,  x=rept_length/arrMaxvalueX; // y값 과 x 값 행열 을 계산함
+			AES_In_State[y][x]=StringHextext_byteArr_masking(Before_sub[rept_length]);
+			// Aes 의 받은 평문 0~15 만큼 글자에 대한 string 으로 만든것에 대해
+			System.out.print(" [ "+rept_length +" : " + AES_In_State[y][x] + " ");
+			//첫번째 글자, 두번째 글자 에 대한 행열 값을 읽을 준비 
+			if (AES_In_State[y][x].length() != 1) { // 해당 칸의 16진수의 길이가 1개 가 아니라면 진입 2칸 짜리임
+				First_char = Integer.parseInt(String.valueOf(AES_In_State[y][x].charAt(0)),16);
+				Second_char = (First_char == '0')?0:Integer.parseInt(String.valueOf(AES_In_State[y][x].charAt(1)),16);
+				// 해당 값이 00 이라면 행 값을 0 으로 하고 아니라면, 글자 1번째 값을 추출함.
+			}else { // 만약 1개 이라면 첫번째 [행] 에 0 입력
+				First_char = 0;
+				Second_char = Integer.parseInt(String.valueOf(AES_In_State[y][x].charAt(0)),16);
+			}
+			
+			// 16진수 변환 한 값에 0 , 1 번째 글자를 가져와서 16진수로 변환 시킴
+			if( S_box_bleans == 0 ) {
+			AES_In_State [y][x]=Integer.toHexString(Integer.valueOf(String.valueOf(AES_S_box[First_char][Second_char])));
+			}else {
+			AES_In_State [y][x]=Integer.toHexString(Integer.valueOf(String.valueOf(ARS_inv_S_box[First_char][Second_char])));
+			} //S-box 의 핼열 값을 입력 시켜 State 에 S-box 값을 넣음. S_box_bleans 값에 따라 암호화 복호화 여부 결정.
+			System.out.print(AES_In_State [y][x]+ " ] ");
+		}
+		System.out.println("\nS-box 연산 종료");
+		return AES_In_State;
+	}  // 1글자 씩 숫자로 변환해 값에 넣음, 치환도 같이진행
+	
+	public static String[][] shift_cul(String[][] before_shift) {
+		String Teamp_array[][]=before_shift; // 이동전 예비 변수 Teamp_array 에 Before_Shift 를 넣어 놓음
+		// 아래 포문은 디버깅 용도임. 
+		for(int Rept_Shift_Count=0;Rept_Shift_Count<arrMaxvalueX;Rept_Shift_Count++) {
+		//16번 반복하는거면 for 문 안쓰고 그냥 하드코딩 시키는게 속도면에서 빠르지만, 범용성을 생각해 for 으로 구현
+			for(int Rept_Shift_Round=0;Rept_Shift_Round<Rept_Shift_Count;Rept_Shift_Round++) {
+			//해당 라인 몇번 반복하는가?
+				String temp = before_shift[Rept_Shift_Count][0]; // 무조건 y 0 값을 Temp 에 넣음.  그리고 아래 for 에서 0~4까지 쉬프팅 함
+				for(int Rept_Shift_Move=0;Rept_Shift_Move<arrMaxvalueX-1;Rept_Shift_Move++) {
+				//바꾸기 시작
+					before_shift[Rept_Shift_Count][Rept_Shift_Move]=Teamp_array[Rept_Shift_Count][Rept_Shift_Move+1];
+				/* before_shift 배열을 그대로 복사한 Teamp_array 에서 i = i + 1 값을 해야 하기 때문에 가장 처음 값에 대한 예외처리를 해야함.
+					또한 마지막 값 은 다음값이 없기 때문에 바운드 익셉션 이 날 수 있기때문에 기존 arrMaxvalueX -1 값만큼만 for 문 에서 처리 해야함.*/
+				}
+				before_shift[Rept_Shift_Count][arrMaxvalueX-1]=temp;
+				//shift 연산 끝 
+			}
+		}
+		System.out.println("shift_cul 연산 종료");
+		return before_shift; //리턴
+		
+	}
+	/* 복호화 관련 코드입니다 작동 시켜도 문제는 되지 않지만 주석 처리 되어있는 관련 코드를 작동 시켜야 합니다.*/
+        public static byte[][] Invers_mixColums(byte[][] state) {
+            byte[][] temp = new byte[4][4];
+            for (int c = 0; c < 4; c++) {
+                temp[0][c] = (byte) (multiply(0x0e, state[0][c]) ^ multiply(0x0b, state[1][c]) ^ multiply(0x0d, state[2][c]) ^ multiply(0x09, state[3][c]));
+                temp[1][c] = (byte) (multiply(0x09, state[0][c]) ^ multiply(0x0e, state[1][c]) ^ multiply(0x0b, state[2][c]) ^ multiply(0x0d, state[3][c]));
+                temp[2][c] = (byte) (multiply(0x0d, state[0][c]) ^ multiply(0x09, state[1][c]) ^ multiply(0x0e, state[2][c]) ^ multiply(0x0b, state[3][c]));
+                temp[3][c] = (byte) (multiply(0x0b, state[0][c]) ^ multiply(0x0d, state[1][c]) ^ multiply(0x09, state[2][c]) ^ multiply(0x0e, state[3][c]));
+            }
+            return temp;
+        }
+        private static byte multiply(int a, byte b) { //곱연산 진행, 코드
+            byte aa = (byte) a, bb = b, r = 0, t;
+            while (aa != 0) {
+                if ((aa & 1) != 0)
+                    r = (byte) (r ^ bb);
+                t = (byte) (bb & 0x80);
+                bb = (byte) (bb << 1);
+                if (t != 0)
+                    bb = (byte) (bb ^ 0x1b);
+                aa = (byte) ((aa & 0xff) >> 1);
+            }
+            return r;
+        }
+	
+	    private static String[][] mixColumns(String[][] state) {
+	    	byte[][] temp = new byte[4][4];// State 에 해당하는 Temp byte 2차 배열을 만들고
+	        for (int i = 0; i < 4; i++) {
+	            for (int j = 0; j < 4; j++) {
+	                temp[i][j] = (byte) Integer.parseInt(state[i][j], 16); //State 배열에 하나씩 바이트로 변환값을 넣음
+	            }
+	        }
+	        byte[][] t = new byte[4][4];
+	        for (int culCount = 0; culCount < 4; culCount++) {
+	        	// 믹스컬럼 시작 갈루아 필드 
+	            t[0][culCount] = (byte) (gfmultby02(temp[0][culCount]) ^ gfmultby03(temp[1][culCount]) ^ temp[2][culCount] ^ temp[3][culCount]);
+	            t[1][culCount] = (byte) (temp[0][culCount] ^ gfmultby02(temp[1][culCount]) ^ gfmultby03(temp[2][culCount]) ^ temp[3][culCount]);
+	            t[2][culCount] = (byte) (temp[0][culCount] ^ temp[1][culCount] ^ gfmultby02(temp[2][culCount]) ^ gfmultby03(temp[3][culCount]));
+	            t[3][culCount] = (byte) (gfmultby03(temp[0][culCount]) ^ temp[1][culCount] ^ temp[2][culCount] ^ gfmultby02(temp[3][culCount]));
+	        }
+	        for (int i = 0; i < 4; i++) {
+	            for (int j = 0; j < 4; j++) {
+	                state[i][j] = String.format("%02X", t[i][j]);
+	            }
+	        }
+	        System.out.println("mixColumns 연산 종료 ");
+	        return state;
+	    }
+
+	    /* 복호화 관련 코드임. 작동해도 문제는 없음.*/
+	    public static byte gfmultby0e(byte b) {
+	        return (byte) (gfmultby02(gfmultby02(gfmultby02(b))) ^ gfmultby02(gfmultby02(b)) ^ gfmultby02(b));
+	    }
+
+	    public static byte gfmultby0b(byte b) {
+	        return (byte) (gfmultby02(gfmultby02(gfmultby02(b))) ^ gfmultby02(b) ^ b);
+	    }
+
+	    public static byte gfmultby0d(byte b) {
+	        return (byte) (gfmultby02(gfmultby02(gfmultby02(b))) ^ gfmultby02(gfmultby02(b)) ^ b);
+	    }
+
+	    public static byte gfmultby09(byte b) {
+	        return (byte) (gfmultby02(gfmultby02(gfmultby02(b))) ^ b);
+	    }
+       
+	    private static byte gfmultby02(byte b) {
+	        int product = (b & 0xFF) << 1; // bit 계산 후 값을 left Shift 1 값을 가지고
+	        if ((product & 0x100) != 0) { // 해당 값이 0 이라면 그냥 지나가지만, 
+	            product ^= 0x11B;	// 0이 아니라면 16진수의 3번째 값 '1' 이 product 에 있다면 128 값을 넘어가기 때문에 
+	        }
+	        return (byte) (product & 0xFF);
+	    }
+
+	    private static byte gfmultby03(byte b) {
+	        return (byte) (gfmultby02(b) ^ b);
+	    }
+
+	public static String StringHextext_byteArr_masking(byte before_masking) {
+		byte Temp_masking_before = 0;
+		Temp_masking_before=before_masking;
+		String String_length_Compare = "";
+	    	    int intValue = Temp_masking_before & 0xFF;
+	    	    String_length_Compare = Integer.toHexString(intValue);
+	    	    if(String_length_Compare.length() > 2) {
+	    	    	Temp_masking_before = (byte)(Temp_masking_before << 24);
+	    	    }
+	    	    StringBuilder stringBuilder = new StringBuilder();
+	           String hex = Integer.toHexString(Temp_masking_before & 0xFF);
+	           if (hex.length() == 1) {stringBuilder.append('0');}
+	           stringBuilder.append(hex);
+	           String_length_Compare =stringBuilder.toString();
+	       return String_length_Compare;
+	}
+	
+	public static byte[] hexStringToByteArray(String StringText) { // 문자열 -> 배열
+	    int len = StringText.length();
+	    byte[] data = new byte[len / 2];
+	    for (int i = 0; i < len; i += 2) {
+	        data[i / 2] = (byte) ( (Character.digit(StringText.charAt(i), 16) << 4) 
+	        		| Character.digit(StringText.charAt(i+1), 16) );
+	    } // 16진수 와 1번 글자와 2번 글자 를 합치기 위해 or 연산 진행.
+	      return data;     
+	 } // Hex String 을 읽고 2개씩 묶어서 글자표현이 가능하게 만듬 A F = AF z
+	
+	public static byte hexStringToByteChar(String StringText) { //단일형 -> 바이트
+	    byte data = 0;
+	    for (int i = 0; i < StringText.length()/2; i += 2) {
+	    	data = (byte) ( (Character.digit(StringText.charAt(i), 16) << 4)
+	               + Character.digit(StringText.charAt(i+1), 16) );
+	    }
+	        return data;  
+	}
+
+	public static String TextToHexString(String Before_text){
+		int rept_length=0;
+		String Retrun_String ="";  
+		System.out.println(Before_text);
+		/* 추가 되어야 할 코드 : AC00부터 D7A3까지 한글 범위에 속해있는가? 판단 하고 excption 에서 바운드 익샙션 잡아야함 */
+		for(rept_length=0;rept_length<Before_text.length();rept_length++) { 
+			Retrun_String += Is_a_hangul(Before_text,rept_length);
+		}
+		if(Retrun_String.length()>(Plan_count*2)) { System.out.println( Retrun_String.length()+"_Retrun_String.length() 의 길이가 Plan 으로 설정한 값 보다 큽니다 "); }
+		int bogers_int = ((Plan_count*2)-Retrun_String.length())/2; //보거스 캐릭터 생산 후 넣기 Z 값 = 5A
+		if((bogers_int!=0)) {
+			for(int rept=bogers_int;0<rept;rept--) {
+				Retrun_String += "5A";
+			}
+		}else {
+		System.out.println(bogers_int+" _ "+Retrun_String+" Borgers INT, retrun ");
+		}
+		System.out.println("평문 :"+ Before_text);
+			// Before_sub의 0~ 15번째 의 글자를 HexString 으로 변환함.
+			// Aes 의 받은 평문 0~15 만큼 글자에 대한 string 으로 만든것에 대해
+			// String 형을 받아서 return을 hexString 배열로 줌
+	System.out.println(Retrun_String);
+	return 	Retrun_String;
+	}
+	public static String Is_a_hangul(String Before_Text,int round) {
+		String Text = Before_Text;
+		Text = Integer.toHexString(Before_Text.charAt(round));
+		
+		if(Text.length()>2) {hangul[round] = 1;}
+		return Text;
+	}
+	
+	public static void Print_Dec_Plan(String Dec_Hex_String) {
+		System.out.println(" DEC Print 진입 "+"\n");
+		String Temp_Dec_Hex_1 ="";
+		int hangul_count =0;
+		String Return_String ="";
+		Dct_Plan ="";
+		
+			for(int rept_Plan=0;rept_Plan<Dec_Hex_String.length();rept_Plan++) {// 최적화 요망 24-05-24 
+				if(hangul[hangul_count]==1) {
+					Temp_Dec_Hex_1+=Dec_Hex_String.substring(rept_Plan,rept_Plan+4);
+					rept_Plan+=3;	
+				}else {
+					Temp_Dec_Hex_1+=Dec_Hex_String.substring(rept_Plan,rept_Plan+2);
+					rept_Plan+=1;
+				}
+					hangul_count+=1;
+					Return_String += hexToUnicode(Temp_Dec_Hex_1);
+					Dct_Plan+=Return_String;
+					Return_String="";Temp_Dec_Hex_1 ="";
+			}
+			System.out.println(Dct_Plan);
+	}
+	
+	public static String hexToUnicode(String hex) {
+        StringBuilder output = new StringBuilder();
+        if(hex.length()==4) {
+	        for (int i = 0; i < hex.length(); i += 4) {
+	            String str = hex.substring(i, i + 4);
+	            output.append((char) Integer.parseInt(str, 16));
+	        }
+        }else {
+        	 for (int i = 0; i < hex.length(); i += 2) {
+	 	        String str = hex.substring(i, i + 2);
+ 	            output.append((char) Integer.parseInt(str, 16));
+        	 }
+        }
+        return output.toString();
+    }
+	
+	public static byte[] Add_key_Round(String Hex_text,int Round_count) {
+		byte hexarry[]=hexStringToByteArray(Hex_text);
+		System.out.println(Round_count+" : Add_key_Round 연산 시작");
+		for(int Key_Plus=0;Key_Plus<Hex_text.length()/2;Key_Plus++) { // 라운드키 ^ 암호(P)
+			System.out.print(" [ "+Key_Plus+" : "+(byte)hexarry[Key_Plus]+"("+Integer.toHexString(Integer.valueOf(hexarry[Key_Plus]))+")"+" ^ "+(byte)Round_key[Round_count][Key_Plus]+"("+ Integer.toHexString(Round_key[Round_count][Key_Plus])+"): ");
+			hexarry[Key_Plus] = (byte)(hexarry[Key_Plus]^(byte)Round_key[Round_count][Key_Plus]);
+			System.out.print(StringHextext_byteArr_masking(hexarry[Key_Plus])+" ] ");
+			AES_In_State[Key_Plus/4][Key_Plus%4]=StringHextext_byteArr_masking(hexarry[Key_Plus]);
+			
+		}// AES 계산값이 84 인데 -> 계산 하면 54 맞음 0101 0100 = 54임
+		printState(AES_In_State);
+		System.out.println("Add_key_Round 연산 종료");
+		return hexarry;
+	}
+
+	 private static String printState(String[][] state) {
+	    	System.out.println("debug : printState 진입  ");
+	    	Ext_Plan = ""; 
+	        for (int i = 0; i < 4; i++) {
+	            for (int j = 0; j < 4; j++) {
+	            	if(state[i][j].length()!=1) {
+	            		Ext_Plan += state[i][j];
+	            		}else {
+	            		Ext_Plan += ("0"+state[i][j]);
+	            		}
+	                System.out.print(state[i][j] + " ");
+	            }
+	            System.out.println();
+	        }
+	        System.out.println();
+	       
+	       byte[] Ext_Plan_Arr = new byte[arrMaxvalueX*arrMaxvalueY];
+	       Ext_Plan_Arr= hexStringToByteArray(Ext_Plan);
+	       Ext_Plan = "";
+	       for(int i =0 ; i<(Ext_Plan_Arr.length);i++ ) {
+	    	  // System.out.print(Ext_Plan_Arr[i] + " "); 
+	    	   Ext_Plan += StringHextext_byteArr_masking(Ext_Plan_Arr[i]);
+	       }
+	       
+	       System.out.println("printState : "+Ext_Plan);
+	        return Ext_Plan;
+	    }
+	 	// 공식 값이랑 섞기
+		// 라운드 키 를 생성 하는 메소드 임
+	public static void Round_Key_Bound(byte[] Key_Arr) {
+	    System.out.println(" Round_Key_Bound 진입 ");
+	    byte[][] roundKeys = generateRoundKeys(Key_Arr);
+	    for (int Round_count = 0; Round_count < roundKeys.length; Round_count++) { // 라운드 수
+	        System.out.print("Round " + Round_count + " Key: "); // 키 값 찾기.
+	        for (int Find_Key_list = 0; Find_Key_list < roundKeys[Round_count].length; Find_Key_list++) {
+	            System.out.printf("%02X"+" ", roundKeys[Round_count][Find_Key_list]);  
+	        }
+	        System.out.println();
+	    }
+	}
+
+	public static byte[][] generateRoundKeys(byte[] originalKey) {
+	    // AES 키 크기
+	    final int Aes_Key_Size = originalKey.length; // 128 비트
+	    // AES-128을 위한 라운드 수
+	    final int Round_count_key = MaxRound;
+	    // 워드 크기 (각 워드는 32비트)
+	    final int W_Size = Aes_Key_Size / 4;
+	    // 라운드 키를 담을 배열 생성
+	    byte[][] roundKeys = new byte[Round_count_key + 1][Aes_Key_Size];
+	    // 원본 키를 첫 번째 라운드 키로 복사
+	    System.arraycopy(originalKey, 0, roundKeys[0], 0, Aes_Key_Size);
+	    // 키 확장 수행
+	    for (int round = 1; round <= Round_count_key; round++) {
+	        byte[] temp = new byte[W_Size]; // temp를 임시 워드로 사용
+
+	        // RotWord 작업 수행
+	        for (int Round_key_word = 1; Round_key_word < W_Size; Round_key_word++) {
+	            System.arraycopy(roundKeys[round - 1], (W_Size - 1) * 4, temp, 0, 4); // tmp에 값을 받아와서 shift 준비
+	            byte tempByte = temp[0]; // 0번째 값을 마지막 값으로 이동시킴
+	            System.arraycopy(temp, 1, temp, 0, W_Size - 1); // 복사해서 덮어 씌우고
+	            temp[W_Size - 1] = tempByte; // 마지막 값으로 이동 이동 끝
+
+	            // SubBytes 작업 수행
+	            for (int i = 0; i < W_Size; i++) {
+	                temp[i] = (byte) AES_S_box[temp[i] >>> 4 & 0xF][temp[i] & 0xF]; // sbox 작동 문제 없음 아마 ?
+	            }
+	            // Rcon 값과의 XOR 연산 수행
+	            temp[0] ^= AES_Round_key_Constants[round - 1];
+	            // 이전 라운드 키와의 XOR 연산 수행
+	            for (int i = 0; i < Aes_Key_Size; i++) {
+	                roundKeys[round][i] = (byte) (roundKeys[round - 1][i] ^ temp[i % (W_Size)]);
+	            }
+	        }
+	    }
+
+	    return roundKeys;
+	}
+    
+	public static byte[][] byteArr_2DState(byte[] before_State) {
+		System.out.println("byteArr_2DState 진입");
+		byte state[][] = new byte [arrMaxvalueX][arrMaxvalueY];
+		
+		for(int rept_arr_length=0;rept_arr_length<before_State.length;rept_arr_length++) {
+			state[rept_arr_length/4][rept_arr_length%4] = before_State[rept_arr_length];
+			if(rept_arr_length % 4 == 0 && rept_arr_length!=0 ) {
+				System.out.print("\n [ "+state[rept_arr_length/4][rept_arr_length%4]+" : "+StringHextext_byteArr_masking(state[rept_arr_length/4][rept_arr_length%4])+ " ] ");
+				}else {
+					System.out.print(" [ "+state[rept_arr_length/4][rept_arr_length%4]+" : "+StringHextext_byteArr_masking(state[rept_arr_length/4][rept_arr_length%4])+ " ] ");
+				}
+		}
+		System.out.println("\nbyteArr_String2DState 종료");
+		return state;
+	}
+
+	public static byte[] invers_shift(byte[][] State) {
+		System.out.println("Invers_shift_cul (인버스)연산 진입\n");
+
+		byte temp = State[1][3];
+        State[1][3] = State[1][2];
+        State[1][2] = State[1][1];
+        State[1][1] = State[1][0];
+        State[1][0] = temp;
+
+		temp = State[2][3];
+        State[2][3] = State[2][1];
+        State[2][1] = temp;
+        temp =State [2][0];
+        State[2][0] = State[2][2];
+        State[2][2] = temp;
+        
+		temp = State[3][0];
+        State[3][0] = State[3][1];
+        State[3][1] = State[3][2];
+        State[3][2] = State[3][3];
+        State[3][3] = temp;
+		
+		
+		String StateString = "";
+		System.out.println("Invers_shift_cul (인버스)연산 후 디버깅 \n");
+		
+		for(int rept_x=0;rept_x<4.;rept_x++) {
+	    	   for(int rept_y=0;rept_y<4.;rept_y++) { 
+	    		  System.out.print(State[rept_x][rept_y]+" ");
+	    		  StateString+=StringHextext_byteArr_masking(State[rept_x][rept_y]);
+	    	   }  
+	    	   System.out.println();
+	    	}
+		System.out.println("\nshift_cul 연산 종료 \n"+StateString);
+		return hexStringToByteArray(StateString);
+	}
+	/*
+	 0~1라운드 에외처리 = addaround -> 1R : | subbyte -> Shift -> Mixcolum -> addround |
+	 1R ( 반복 ) | addaround -> subbyte -> Shift -> Mixcolum -> | -> addround -> ...
+	 마지막 라운드 예외처리 =  sub -> shift -> addround
+	*/
+	
+	public static void main(String[] args) {
+		
+		Ext_Plan=TextToHexString(Dct_Plan);
+		//Round_Key_Bound(hexStringToByteArray(TextToHexString(Key)));
+		
+		System.out.println("16 -> "+Ext_Plan);
+		for(int Round = 0;Round<MaxRound;Round++) {
+			System.out.println(Round +" key 번째");
+			if(Round<MaxRound-1) {
+				printState(mixColumns(shift_cul(SubByte_Cul(Add_key_Round(Ext_Plan,Round),0))));
+			}else {
+				System.out.println("[Round<MaxRound 진입]");
+				Add_key_Round(printState(shift_cul(SubByte_Cul(Add_key_Round(Ext_Plan,Round),0))),Round+1);
+				Round+=1;
+			}
+		}
+		/* 복호화 코드 임  */
+		System.out.println("\n복호화 시작.\n");
+		 for(int Round = MaxRound;Round>0;Round--) {
+			System.out.println("  [   "+Round+"진입"+"    "+ " ]   ");
+			if(Round<MaxRound) {
+				printState(SubByte_Cul(invers_shift(Invers_mixColums(byteArr_2DState(Add_key_Round(Ext_Plan,Round)))),1));
+				System.out.println(Round + " [ 라운드 종료 ] ");
+			}else {//invers shift 가 String 값을 가지고 연산을 진행하게 마지막 부분 세팅됨 이걸 바꿔야함.
+				System.out.println(" Round Else ");
+				printState(SubByte_Cul(invers_shift(byteArr_2DState(Add_key_Round(Ext_Plan,Round))),Round));
+				System.out.println(Round + " [ 라운드 종료 ] ");
+			}
+		 }
+		 Add_key_Round(Ext_Plan,0);
+		 Print_Dec_Plan(Ext_Plan);
+	}
+}
+
+
+/*
+특정구간 디버그용 코드 복사 후 before_shift 변경할것.
+for(int rept_x=0;rept_x<4.;rept_x++) {
+	for(int rept_y=0;rept_y<4.;rept_y++) { 
+	  System.out.print(before_shift[rept_x][rept_y]+" ");
+	}  
+	System.out.println();
+}
+*/ 
